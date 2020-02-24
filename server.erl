@@ -17,15 +17,19 @@ handle(State, {join, Channel, Client}) ->
       true ->
 	  Result = genserver:request(list_to_atom(Channel),
 				     {join, Client}),
-	  case Result of
-	    ok -> {reply, ok, State};
-	    user_already_joined ->
-		{reply, user_already_joined, State}
-	  end;
+	  {reply, Result, State};
       false ->
 	  genserver:start(list_to_atom(Channel), [Client],
 			  fun channel/2),
 	  {reply, ok, [Channel | State]}
+    end;
+handle(State, {leave, Channel, Client}) ->
+    case lists:member(Channel, State) of
+      true ->
+	  Result = genserver:request(list_to_atom(Channel),
+				     {leave, Client}),
+	  {reply, Result, State};
+      false -> {reply, invalid_channel, State}
     end.
 
 channel(State, {join, Client}) ->
@@ -33,6 +37,12 @@ channel(State, {join, Client}) ->
     case lists:member(Client, State) of
       true -> {reply, user_already_joined, State};
       false -> {reply, ok, [Client | State]}
+    end;
+channel(State, {leave, Client}) ->
+    io:fwrite("[Channel], ~p,~p~n", [State, Client]),
+    case lists:member(Client, State) of
+      true -> {reply, ok, lists:delete(Client, State)};
+      false -> {reply, user_not_joined, State}
     end.
 
 % Stop the server process registered to the given name,
