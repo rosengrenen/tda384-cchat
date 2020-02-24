@@ -30,6 +30,15 @@ handle(State, {leave, Channel, Client}) ->
 				     {leave, Client}),
 	  {reply, Result, State};
       false -> {reply, invalid_channel, State}
+    end;
+handle(State,
+       {message_send, Channel, Client, Message}) ->
+    case lists:member(Channel, State) of
+      true ->
+	  Result = genserver:request(list_to_atom(Channel),
+				     {message_send, Channel, Client, Message}),
+	  {reply, Result, State};
+      false -> {reply, invalid_channel, State}
     end.
 
 channel(State, {join, Client}) ->
@@ -42,6 +51,27 @@ channel(State, {leave, Client}) ->
     io:fwrite("[Channel], ~p,~p~n", [State, Client]),
     case lists:member(Client, State) of
       true -> {reply, ok, lists:delete(Client, State)};
+      false -> {reply, user_not_joined, State}
+    end;
+channel(State,
+	{message_send, Channel, Client, Message}) ->
+    io:fwrite("[Channel], ~p,~p~n", [State, Client]),
+    case lists:member(Client, State) of
+      true ->
+	  spawn(fun () ->
+			lists:foreach(fun (Pid) ->
+					      if Pid == Client -> skip;
+						 true ->
+						     genserver:request(list_to_atom(Pid),
+								       {message_receive,
+									Channel,
+									Client,
+									Message})
+					      end
+				      end,
+				      State)
+		end),
+	  {reply, ok, State};
       false -> {reply, user_not_joined, State}
     end.
 

@@ -48,7 +48,7 @@ handle(St, {leave, Channel}) ->
 handle(St, {message_send, Channel, Msg}) ->
     % TODO: Implement this function
     Result = genserver:request(St#client_st.server,
-			       {message_send, St#client_st.nick, Channel, Msg}),
+			       {message_send, Channel, St#client_st.nick, Msg}),
     {reply, Result, St};
 %{reply, {error, not_implemented, "message sending not implemented"}, St} ;
 % This case is only relevant for the distinction assignment!
