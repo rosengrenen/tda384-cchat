@@ -2,19 +2,33 @@
 
 -export([start/1, stop/1]).
 
-% This record defines the structure of the state of a client.
-% Add whatever other fields you need.
 -record(
-  channel_st,
+  server_state,
   {
-    % channel id
-    id,
+    clients,
+    channels
+  }
+).
+
+-record(
+  channel_state,
+  {
+    name,
     clients
   }
 ).
 
-%clients in the server
-initial_state(Id, Clients) -> #channel_st{id = Id, clients = Clients}.
+-record(
+  client,
+  {
+    pid,
+    nick
+  }
+).
+
+server_state() -> #server_state{clients = [], channels = []}.
+channel_state(Name, Clients) -> #channel_state{name = Name, clients = Clients}.
+client(Pid, Nick) -> #client{pid = Pid, nick = Nick}.
 
 % Start a new server process with the given name
 % Do not change the signature of this function.
@@ -39,17 +53,17 @@ handle(State, {exit, _}) ->
   {reply, ok, State}.
 
 channel(State, {join, Client}) ->
-  case lists:member(Client, State#channel_st.clients) of
+  case lists:member(Client, State#channel_state.clients) of
     true -> {reply, user_already_joined, State};
-    false -> {reply, ok, State#channel_st{clients = [Client | State#channel_st.clients]}}
+    false -> {reply, ok, State#channel_state{clients = [Client | State#channel_state.clients]}}
   end;
 channel(State, {leave, Client}) ->
-  case lists:member(Client, State#channel_st.clients) of
-    true -> {reply, ok, State#channel_st{clients = lists:delete(Client, State#channel_st.clients)}};
+  case lists:member(Client, State#channel_state.clients) of
+    true -> {reply, ok, State#channel_state{clients = lists:delete(Client, State#channel_state.clients)}};
     false -> {reply, user_not_joined, State}
   end;
 channel(State, {message_send, Client, Nick, Message}) ->
-  case lists:member(Client, State#channel_st.clients) of
+  case lists:member(Client, State#channel_state.clients) of
     true ->
       spawn(
         fun
@@ -60,10 +74,10 @@ channel(State, {message_send, Client, Nick, Message}) ->
                   if
                     Pid == Client -> skip;
                     true ->
-                      genserver:request(Pid, {message_receive, State#channel_st.id, Nick, Message})
+                      genserver:request(Pid, {message_receive, State#channel_state.name, Nick, Message})
                   end
               end,
-              State#channel_st.clients
+              State#channel_state.clients
             )
         end
       ),
