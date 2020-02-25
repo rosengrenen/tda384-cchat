@@ -30,37 +30,36 @@ initial_state(Nick, GUIAtom, ServerAtom) ->
 %   - NewState is the updated state of the client
 % Join channel
 handle(St, {join, Channel}) ->
-  % TODO: Implement this function
   case catch genserver:request(St#client_st.server, {join, Channel, self(), St#client_st.nick}) of
     ok -> {reply, ok, St};
     user_already_joined ->
-      {reply, {error, user_already_joined, "you are already in this channel"}, St};
+      {reply, {error, user_already_joined, "User is already in that channel"}, St};
+    nick_taken -> {reply, {error, nick_taken, "Nick already taken"}, St};
     {'EXIT', _} -> {reply, {error, server_not_reached, "Server could not be reached"}, St}
   end;
-%{reply, {error, not_implemented, "join not implemented"}, St} ;
 % Leave channel
 handle(St, {leave, Channel}) ->
-  % TODO: Implement this function
   case catch genserver:request(list_to_atom(Channel), {leave, self()}) of
     ok -> {reply, ok, St};
-    user_not_joined -> {reply, {error, user_not_joined, "User is not in this channel"}, St};
+    user_not_joined -> {reply, {error, user_not_joined, "User is not in that channel"}, St};
     {'EXIT', _} -> {reply, {error, server_not_reached, "Server could not be reached"}, St}
   end;
-%{reply, {error, not_implemented, "leave not implemented"}, St} ;
 % Sending message (from GUI, to channel)
 handle(St, {message_send, Channel, Msg}) ->
-  % TODO: Implement this function
-  case catch genserver:request(list_to_atom(Channel), {message_send, self(), St#client_st.nick, Msg}) of
+  case
+  catch genserver:request(list_to_atom(Channel), {message_send, self(), St#client_st.nick, Msg}) of
     ok -> {reply, ok, St};
-    user_not_joined -> {reply, {error, user_not_joined, "Bla"}, St};
+    user_not_joined -> {reply, {error, user_not_joined, "User is already in that channel"}, St};
     {'EXIT', _} -> {reply, {error, server_not_reached, "Server could not be reached"}, St}
   end;
-%{reply, {error, not_implemented, "message sending not implemented"}, St} ;
 % This case is only relevant for the distinction assignment!
 % Change nick (no check, local only)
 handle(St, {nick, NewNick}) ->
-  io:fwrite("CHANGING NICK!!!~n", []),
-  {reply, ok, St#client_st{nick = NewNick}};
+  case catch genserver:request(St#client_st.server, {nick, self(), NewNick}) of
+    ok -> {reply, ok, St#client_st{nick = NewNick}};
+    nick_taken -> {reply, {error, nick_taken, "Nick already taken"}, St};
+    {'EXIT', _} -> {reply, {error, server_not_reached, "Server could not be reached"}, St}
+  end;
 % ---------------------------------------------------------------------------
 % The cases below do not need to be changed...
 % But you should understand how they work!
@@ -75,4 +74,4 @@ handle(St, quit) ->
   % Any cleanup should happen here, but this is optional
   {reply, ok, St};
 % Catch-all for any unhandled requests
-handle(St, Data) -> {reply, {error, not_implemented, "Client does not handle this command"}, St}.
+handle(St, _) -> {reply, {error, not_implemented, "Client does not handle this command"}, St}.

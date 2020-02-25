@@ -37,61 +37,67 @@ pid_exists(Pid, [Client | RestOfClients]) ->
 
 channel_exists(Channel, Channels) -> lists:member(Channel, Channels).
 
-% returns { Result, NewState }
-% if the Pid is not available, it means that the user is already connected
-handle_join(State, RequestInput = {_, ClientPid, _}) ->
-  handle_join_check_pid_exists(
-    State,
-    pid_exists(ClientPid, State#server_state.clients),
-    RequestInput
-  ).
+update_client_nick(_, _, []) -> [];
+update_client_nick(NewNick, ClientPid, [Client | RestOfClients]) ->
+  if
+    ClientPid == Client#client.pid -> [Client#client{nick = NewNick} | RestOfClients];
+    true -> [Client | update_client_nick(NewNick, ClientPid, RestOfClients)]
+  end.
 
-handle_join_check_pid_exists(State, true, RequestInput = {ChannelName, _, _}) ->
-  io:fwrite("pid exists~n"),
-  handle_join_check_channel_exists(
-    State,
-    channel_exists(ChannelName, State#server_state.channels),
-    RequestInput
-  );
-handle_join_check_pid_exists(State, false, RequestInput = {_, _, ClientNick}) ->
-  io:fwrite("pid doesnt exist~n"),
-  handle_join_check_nick_exists(
-    State,
-    nick_exists(ClientNick, State#server_state.clients),
-    RequestInput
-  ).
+validate_client(State, RequestInput = {_, ClientPid, ClientNick}) ->
+  case pid_exists(ClientPid, State#server_state.clients) of
+    true -> check_channel(State, RequestInput);
+    false ->
+      case nick_exists(ClientNick, State#server_state.clients) of
+        true -> {nick_taken, State};
+        false ->
+          check_channel(
+            State#server_state{
+              clients = [client(ClientPid, ClientNick) | State#server_state.clients]
+            },
+            RequestInput
+          )
+      end
+  end.
 
-handle_join_check_nick_exists(State, true, _) ->
-  io:fwrite("nick already exists, quitting~n"),
-  {nick_taken, State};
-handle_join_check_nick_exists(State, false, RequestInput = {ChannelName, ClientPid, ClientNick}) ->
-  io:fwrite("nick doesnt exist, adding to list~n"),
-  handle_join_check_channel_exists(
-    State#server_state{clients = [client(ClientPid, ClientNick) | State#server_state.clients]},
-    channel_exists(ChannelName, State#server_state.channels),
-    RequestInput
-  ).
+check_channel(State, RequestInput = {ChannelName, _, _}) ->
+  case channel_exists(ChannelName, State#server_state.channels) of
+    true -> join_channel(State, RequestInput);
+    false ->
+      genserver:start(list_to_atom(ChannelName), channel_state(ChannelName), fun channel/2),
+      join_channel(
+        State#server_state{channels = [ChannelName | State#server_state.channels]},
+        RequestInput
+      )
+  end.
 
-handle_join_check_channel_exists(State, true, RequestInput) ->
-  io:fwrite("channel exists~n"),
-  handle_join_join_channel(State, RequestInput);
-handle_join_check_channel_exists(State, false, RequestInput = {ChannelName, _, _}) ->
-  io:fwrite("channel doesnt exist, creating~n"),
-  genserver:start(list_to_atom(ChannelName), channel_state(ChannelName), fun channel/2),
-  handle_join_join_channel(
-    State#server_state{channels = [ChannelName | State#server_state.channels]},
-    RequestInput
-  ).
-
-handle_join_join_channel(State, {ChannelName, ClientPid, _}) ->
-  io:fwrite("join channel~n"),
+join_channel(State, {ChannelName, ClientPid, _}) ->
   {genserver:request(list_to_atom(ChannelName), {join, ClientPid}), State}.
 
 handle(State, {join, ChannelName, ClientPid, ClientNick}) ->
-  {Result, NewState} = handle_join(State, {ChannelName, ClientPid, ClientNick}),
+  {Result, NewState} = validate_client(State, {ChannelName, ClientPid, ClientNick}),
   {reply, Result, NewState};
+handle(State, {nick, ClientPid, NewClientNick}) ->
+  case lists:member(client(ClientPid, NewClientNick), State#server_state.clients) of
+    true -> {reply, ok, State};
+    false ->
+      case nick_exists(NewClientNick, State#server_state.clients) of
+        true -> {reply, nick_taken, State};
+        false ->
+          {
+            reply,
+            ok,
+            State#server_state{
+              clients = update_client_nick(NewClientNick, ClientPid, State#server_state.clients)
+            }
+          }
+      end
+  end;
 handle(State, {exit, _}) ->
-  lists:foreach(fun (Channel) -> genserver:stop(list_to_atom(Channel)) end, State#server_state.channels),
+  lists:foreach(
+    fun (Channel) -> genserver:stop(list_to_atom(Channel)) end,
+    State#server_state.channels
+  ),
   {reply, ok, State}.
 
 channel(State, {join, Client}) ->
