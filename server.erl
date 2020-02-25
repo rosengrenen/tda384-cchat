@@ -21,51 +21,77 @@ start(ServerAtom) ->
   % - Return the process ID
   catch genserver:start(ServerAtom, server_state(), fun handle/2).
 
-nick_exists(Nick, State) -> true.
+nick_exists(_, []) -> false;
+nick_exists(Nick, [Client | RestOfClients]) ->
+  case Nick == Client#client.nick of
+    true -> true;
+    false -> nick_exists(Nick, RestOfClients)
+  end.
 
-pid_exists(Nick, State) -> false.
+pid_exists(_, []) -> false;
+pid_exists(Pid, [Client | RestOfClients]) ->
+  case Pid == Client#client.pid of
+    true -> true;
+    false -> nick_exists(Pid, RestOfClients)
+  end.
 
-channel_exists(Channel, State) -> true.
+channel_exists(Channel, Channels) -> lists:member(Channel, Channels).
 
 % returns { Result, NewState }
 % if the Pid is not available, it means that the user is already connected
-handle_join(State, RequestInput = {_, ClientPid, _}) -> 
-  handle_join_check_pid_exists(State, pid_exists(ClientPid, State), RequestInput).
+handle_join(State, RequestInput = {_, ClientPid, _}) ->
+  handle_join_check_pid_exists(
+    State,
+    pid_exists(ClientPid, State#server_state.clients),
+    RequestInput
+  ).
 
 handle_join_check_pid_exists(State, true, RequestInput = {ChannelName, _, _}) ->
-  handle_join_check_channel_exists(State, channel_exists(ChannelName, State), RequestInput);
-
+  io:fwrite("pid exists~n"),
+  handle_join_check_channel_exists(
+    State,
+    channel_exists(ChannelName, State#server_state.channels),
+    RequestInput
+  );
 handle_join_check_pid_exists(State, false, RequestInput = {_, _, ClientNick}) ->
-  handle_join_check_nick_exists(State, nick_exists(ClientNick, State), RequestInput).
+  io:fwrite("pid doesnt exist~n"),
+  handle_join_check_nick_exists(
+    State,
+    nick_exists(ClientNick, State#server_state.clients),
+    RequestInput
+  ).
 
 handle_join_check_nick_exists(State, true, _) ->
+  io:fwrite("nick already exists, quitting~n"),
   {nick_taken, State};
-
 handle_join_check_nick_exists(State, false, RequestInput = {ChannelName, ClientPid, ClientNick}) ->
-  handle_join_check_channel_exists(State#server_state{clients = [client(ClientPid, ClientNick) | State#server_state.clients]}, channel_exists(ChannelName, State), RequestInput).
+  io:fwrite("nick doesnt exist, adding to list~n"),
+  handle_join_check_channel_exists(
+    State#server_state{clients = [client(ClientPid, ClientNick) | State#server_state.clients]},
+    channel_exists(ChannelName, State#server_state.channels),
+    RequestInput
+  ).
 
-handle_join_check_channel_exists(State, true, RequestInput = {ChannelName, _, _}) ->
-  genserver:start(
-    list_to_atom(ChannelName),
-    channel_state(ChannelName),
-    fun channel/2
-  ),
-  handle_join_join_channel(State#server_state{channels = [ChannelName | State#server_state.channels]}, RequestInput);
-
-handle_join_check_channel_exists(State, false, RequestInput) ->
-  handle_join_join_channel(State, RequestInput).
+handle_join_check_channel_exists(State, true, RequestInput) ->
+  io:fwrite("channel exists~n"),
+  handle_join_join_channel(State, RequestInput);
+handle_join_check_channel_exists(State, false, RequestInput = {ChannelName, _, _}) ->
+  io:fwrite("channel doesnt exist, creating~n"),
+  genserver:start(list_to_atom(ChannelName), channel_state(ChannelName), fun channel/2),
+  handle_join_join_channel(
+    State#server_state{channels = [ChannelName | State#server_state.channels]},
+    RequestInput
+  ).
 
 handle_join_join_channel(State, {ChannelName, ClientPid, _}) ->
-  { genserver:request(list_to_atom(ChannelName), {join, ClientPid}), State }.
+  io:fwrite("join channel~n"),
+  {genserver:request(list_to_atom(ChannelName), {join, ClientPid}), State}.
 
 handle(State, {join, ChannelName, ClientPid, ClientNick}) ->
-  {Result, NewState} = handle_join(
-    State,
-    {ChannelName, ClientPid, ClientNick}
-  ),
+  {Result, NewState} = handle_join(State, {ChannelName, ClientPid, ClientNick}),
   {reply, Result, NewState};
 handle(State, {exit, _}) ->
-  lists:foreach(fun (Channel) -> genserver:stop(list_to_atom(Channel)) end, State),
+  lists:foreach(fun (Channel) -> genserver:stop(list_to_atom(Channel)) end, State#server_state.channels),
   {reply, ok, State}.
 
 channel(State, {join, Client}) ->

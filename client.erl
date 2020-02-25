@@ -31,7 +31,7 @@ initial_state(Nick, GUIAtom, ServerAtom) ->
 % Join channel
 handle(St, {join, Channel}) ->
   % TODO: Implement this function
-  case catch genserver:request(St#client_st.server, {join, Channel, self()}) of
+  case catch genserver:request(St#client_st.server, {join, Channel, self(), St#client_st.nick}) of
     ok -> {reply, ok, St};
     user_already_joined ->
       {reply, {error, user_already_joined, "you are already in this channel"}, St};
