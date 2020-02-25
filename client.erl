@@ -30,26 +30,36 @@ handle(St, {join, Channel}) ->
 			       {join, Channel, St#client_st.nick}),
     case Result of
       ok -> {reply, ok, St};
-      user_already_joined -> {reply, error, St}
+      user_already_joined ->
+	  {reply,
+	   {error, user_already_joined,
+	    "you are already in this channel"},
+	   St}
     end;
 %{reply, {error, not_implemented, "join not implemented"}, St} ;
 % Leave channel
 handle(St, {leave, Channel}) ->
     % TODO: Implement this function
-    Result = genserver:request(St#client_st.server,
-			       {leave, Channel, St#client_st.nick}),
+    Result = genserver:request(list_to_atom(Channel),
+			       {leave, St#client_st.nick}),
     case Result of
       ok -> {reply, ok, St};
-      user_not_joined -> {reply, error, St};
-      invalid_channel -> {reply, error, St}
+      user_not_joined ->
+	  {reply,
+	   {error, user_not_joined, "User is not in this channel"},
+	   St}
     end;
 %{reply, {error, not_implemented, "leave not implemented"}, St} ;
 % Sending message (from GUI, to channel)
 handle(St, {message_send, Channel, Msg}) ->
     % TODO: Implement this function
-    Result = genserver:request(St#client_st.server,
-			       {message_send, Channel, St#client_st.nick, Msg}),
-    {reply, Result, St};
+    Result = genserver:request(list_to_atom(Channel),
+			       {message_send, St#client_st.nick, Msg}),
+    case Result of
+      ok -> {reply, ok, St};
+      user_not_joined ->
+	  {reply, {error, user_not_joined, "Bla"}, St}
+    end;
 %{reply, {error, not_implemented, "message sending not implemented"}, St} ;
 % This case is only relevant for the distinction assignment!
 % Change nick (no check, local only)
